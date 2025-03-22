@@ -36,19 +36,21 @@ kernel_size = 2
 
 class WaveNet(nn.Module): 
     
-    def __init__(self, input_channels, residual_channels = 32, dilation_channels = 32, 
-                 skip_channels = 256, num_blocks = 3, num_layers = 10, output_length = 32, end_channels = 256):
+    def __init__(self, residual_channels = 32, dilation_channels = 32, classes = 256,
+                 skip_channels = 256, num_blocks = 3, num_layers = 10, output_length = 32, end_channels = 256, bias = True):
         super(WaveNet, self).__init__() 
 
         self.num_blocks = num_blocks
         self.num_layers = num_layers
         self.kernel_size = kernel_size
 
-        self.causal_conv = nn.Conv1d(in_channels = input_channels, out_channels = residual_channels, kernel_size=1)
+        input_channels = classes # why are the input channels 256? U law companding?
+
+        self.causal_conv = nn.Conv1d(in_channels = input_channels, out_channels = residual_channels, kernel_size=1, bias=bias)
 
         
         self.dilation = []
-        init_dilation = 1
+        init_dilation, receptive_field = 1, 1
 
         # parametrized residual connection 
         self.filter = nn.ModuleList()
@@ -56,7 +58,8 @@ class WaveNet(nn.Module):
 
         self.residual_connection = nn.ModuleList()
         self.skip_connection = nn.ModuleList()
-
+        verbose = True 
+        
         # dilations repeat num_blocks times
         for i in range(num_blocks):
             
@@ -65,21 +68,22 @@ class WaveNet(nn.Module):
 
             for j in range(num_layers):
                 self.dilation.append((new_dilation, init_dilation))
-                print(f'dilation block {i}, layer: {j}, dilation: {init_dilation}, new_dilation: {new_dilation}')
+                if verbose: 
+                    print(f' ==> dilation block {i}, layer: {j}, dilation: {init_dilation}, new_dilation: {new_dilation}')
            
 
                 self.filter.append(nn.Conv1d(in_channels = residual_channels, out_channels = dilation_channels, 
-                                             kernel_size = 1))
+                                             kernel_size = kernel_size,  bias=bias))
                 self.gate.append(nn.Conv1d(in_channels = residual_channels, out_channels = dilation_channels, 
-                                             kernel_size = 1)) 
+                                             kernel_size = kernel_size,  bias=bias)) 
 
                 # why is the residual connection parametrized? 
                 self.residual_connection.append(nn.Conv1d(in_channels = dilation_channels, out_channels = residual_channels, 
-                                                    kernel_size = 1))
+                                                    kernel_size = 1,  bias=bias))
 
                 # skip connection is also parametrized 
                 self.skip_connection.append(nn.Conv1d(in_channels = dilation_channels, out_channels = skip_channels, 
-                                                 kernel_size = 1))
+                                                 kernel_size = 1,  bias=bias))
                 #receptive_field  = 
                 init_dilation = new_dilation
                 new_dilation = new_dilation * 2
@@ -131,7 +135,7 @@ class WaveNet(nn.Module):
             skip = s + skip
 
             x = self.residual_connection[i](x)
-            import code; code.interact(local=dict(globals(), **locals()))
+            # import code; code.interact(local=dict(globals(), **locals()))
             
             x = x + residual[:, :, (self.kernel_size - 1):]
 
@@ -156,8 +160,8 @@ class WaveNet(nn.Module):
 
         return x
 
-model = WaveNet(input_channels = 1, residual_channels = 16, dilation_channels = 16, skip_channels = 16, num_blocks = 2, num_layers = 10)
+# model = WaveNet(input_channels = 1, residual_channels = 16, dilation_channels = 16, skip_channels = 16, num_blocks = 2, num_layers = 10)
 
-sample_tensor =torch.randn(1, 1, 1000)
+# sample_tensor =torch.randn(1, 1, 1000)
 
-model.forward(sample_tensor)
+# model.forward(sample_tensor)
