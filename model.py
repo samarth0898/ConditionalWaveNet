@@ -59,7 +59,9 @@ class WaveNet(nn.Module):
 
         # dilations repeat num_blocks times
         for i in range(num_blocks):
+            
             new_dilation = 1
+            additional_scope = kernel_size - 1
 
             for j in range(num_layers):
                 self.dilation.append((new_dilation, init_dilation))
@@ -81,6 +83,9 @@ class WaveNet(nn.Module):
                 #receptive_field  = 
                 init_dilation = new_dilation
                 new_dilation = new_dilation * 2
+
+                receptive_field += additional_scope
+                additional_scope *= 2
 
         self.end_conv_1 = nn.Conv1d(in_channels=skip_channels,
                                     out_channels=end_channels,
