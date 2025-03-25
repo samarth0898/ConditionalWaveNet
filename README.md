@@ -21,5 +21,13 @@
 3. Skip connection 
 
 
+### Dataset 
 
+### Hyperparameters 
+
+1. Epochs: 10 
+2. Learning Rate, Scheduler: 0.001, None 
+3. Optimizer: Adam
+4. Criteria: CrossEntropy
+5. Grad clip and weight decay: 0
             

@@ -135,6 +135,11 @@ class WavenetDataset(torch.utils.data.Dataset):
 
 
 def quantize_data(data, classes):
+    """
+        1. First compand the values using mu - law
+        2. Then compress into 8 bit values 
+        3. Now the softmax can predict exactly 256 values instead of many many values! 
+    """
     mu_x = mu_law_encoding(data, classes)
     bins = np.linspace(-1, 1, classes)
     quantized = np.digitize(mu_x, bins) - 1

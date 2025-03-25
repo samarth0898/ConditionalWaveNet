@@ -59,7 +59,7 @@ class WaveNet(nn.Module):
         self.residual_connection = nn.ModuleList()
         self.skip_connection = nn.ModuleList()
         verbose = True 
-        
+
         # dilations repeat num_blocks times
         for i in range(num_blocks):
             
@@ -70,8 +70,7 @@ class WaveNet(nn.Module):
                 self.dilation.append((new_dilation, init_dilation))
                 if verbose: 
                     print(f' ==> dilation block {i}, layer: {j}, dilation: {init_dilation}, new_dilation: {new_dilation}')
-           
-
+    
                 self.filter.append(nn.Conv1d(in_channels = residual_channels, out_channels = dilation_channels, 
                                              kernel_size = kernel_size,  bias=bias))
                 self.gate.append(nn.Conv1d(in_channels = residual_channels, out_channels = dilation_channels, 
