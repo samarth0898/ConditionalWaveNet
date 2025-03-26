@@ -112,6 +112,7 @@ class WavenetDataset(torch.utils.data.Dataset):
             file_name = 'arr_' + str(file_index)
             this_file = np.load(self.dataset_file, mmap_mode='r')[file_name]
             sample = this_file[position_in_file:position_in_file + self._item_length + 1]
+            # print(f'sample size {sample.shape}')
         else:
             # load from two files
             file1 = np.load(self.dataset_file, mmap_mode='r')['arr_' + str(file_index)]
@@ -124,6 +125,7 @@ class WavenetDataset(torch.utils.data.Dataset):
         one_hot = torch.FloatTensor(self.classes, self._item_length).zero_()
         one_hot.scatter_(0, example[:self._item_length].unsqueeze(0), 1.)
         target = example[-self.target_length:].unsqueeze(0)
+        # print(f'target {target.shape}')
         return one_hot, target
 
     def __len__(self):

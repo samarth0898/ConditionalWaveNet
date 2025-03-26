@@ -105,7 +105,7 @@ class WaveNet(nn.Module):
 
     def forward(self, x):
        
-        residual_input = self.causal_conv(x)
+        x = self.causal_conv(x)
         
         for i in range(self.num_blocks*self.num_layers):
             
@@ -114,8 +114,8 @@ class WaveNet(nn.Module):
 
             residual = self.wavenet_dilate(x, dilation, init_dilation, i)
 
-            filter = self.filter[i](residual_input)
-            gate = self.gate[i](residual_input)
+            filter = self.filter[i](residual)
+            gate = self.gate[i](residual)
             
             filter = F.tanh(filter)
             gate = F.sigmoid(gate)
@@ -129,7 +129,6 @@ class WaveNet(nn.Module):
             try:
                 skip = skip[:, :, -s.size(2):]
             except:
-                print('skip connection error')
                 skip = 0
             skip = s + skip
 
