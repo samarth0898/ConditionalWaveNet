@@ -11,11 +11,15 @@ Implementation of WaveNet, an autoregressive generative model
 3. Skip connection 
 
 """
+import numpy as np
 
 import torch.nn as nn 
 import torch.nn.functional as F
-import torch
+import torch, torchaudio as ta
+from torch.autograd import Variable
+
 from utils import dilate
+from dataset import mu_law_expansion
 
 dilation_channels=32
 residual_channels=32
@@ -157,6 +161,60 @@ class WaveNet(nn.Module):
         x = dilate(input, dilation, init_dilation)
 
         return x
+    def generate(self, model, num_samples, temperature = 1, first_samples = None, regularize = 0, ): 
+        model.eval() 
+        if first_samples is None: 
+            first_samples = torch.LongTensor(1).zero_() + (self.classes // 2) 
+            first_samples = Variable(first_samples) 
+            input = Variable(torch.FloatTensor(1, self.classes, 1).zero_()) 
+            input = input.scatter_(1, first_samples[0:1].view(1, -1, 1), 1.) 
+            # if first_samples is None: 
+            # # first_samples = torch.LongTensor(1).zero_() + (self.classes // 2) 
+            # # first_samples = Variable(first_samples) 
+        if first_samples is None: 
+            first_samples = self.dtype(1).zero_() 
+            generated = Variable(first_samples, volatile=True) 
+            num_pad = self.receptive_field - generated.size(0) 
+        if num_pad > 0: 
+            generated = torch.nn.ConstantPad1d(num_pad, 0)(generated) 
+            print("pad zero") 
+        # generated = torch.tensor(0, device='cuda:0') 
+        for i in range(num_samples): 
+            input = Variable(torch.FloatTensor(1, self.classes, self.receptive_field).zero_()) 
+            if generated.any(): 
+                print(f'input {input.size()}, generated {generated.size()}') 
+                # self.receptive_field = self.receptive_field.to(torch.int64) 
+                input = input.scatter_(1, generated[-self.receptive_field:].view(1, -1, self.receptive_field), 1.) 
+            input = input.to('cuda') 
+            x = model(input, generation = True)[:, :, -1].squeeze() 
+            x = x.detach().to('cpu') 
+            if temperature > 0: 
+                x /= temperature 
+                prob = F.softmax(x, dim=0) 
+                print(prob)
+                np_prob = np.array(prob) 
+                print(np_prob) 
+                x = np.random.choice(self.classes, p=np_prob) 
+                x = Variable(torch.LongTensor([x])) 
+            else: 
+                x = torch.max(x, 0)[1].float() 
+            if generated.any(): 
+                x = x.to(torch.int64) 
+                generated = torch.cat((generated, x.reshape(1)), 0) 
+            else: 
+                generated = x 
+                
+        generated = (generated / self.classes) * 2. - 1 
+
+        mu_gen = mu_law_expansion(generated, self.classes) 
+     
+        mu_gen = torch.unsqueeze(mu_gen, 0) 
+        ta.save('test_1.wav', mu_gen, 16000) 
+        self.train() 
+
+        import code; code.interact(local = locals()) 
+
+        return mu_gen
 
 # model = WaveNet(input_channels = 1, residual_channels = 16, dilation_channels = 16, skip_channels = 16, num_blocks = 2, num_layers = 10)
 

@@ -1,11 +1,13 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from torch.optim import Adam
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
+
+import numpy as np
 
 import argparse 
 import os
@@ -46,6 +48,14 @@ def cleanup():
 device_type = "cuda" if device.startswith("cuda") else "cpu"
 
 
+def generate_block(model, temperature = [0.5]): 
+    model.eval() 
+    samples, length = [], 80000 
+    for temp in temperature: 
+        samples.append(model.generate(model, num_samples = length, temperature=temp)) 
+        samples = np.stack(samples, axis=0) 
+        # tf_samples = tf.convert_to_tensor(samples, dtype=tf.float32) 
+        return samples
 def train(model, train_dataloader, clip = None):
     epochs = 10
     learning_rate, weight_decay = 0.001, 0
@@ -100,6 +110,7 @@ def train(model, train_dataloader, clip = None):
         if (step % 1 == 0) and master_process: 
             ckpt = {'model': model.state_dict(), 'optim': optimizer.state_dict(), 'step': step}
             torch.save(ckpt, f'./checkpoints/{step}.pt')
+    cleanup()
 
 def main(): 
    
@@ -114,22 +125,37 @@ def main():
                      bias=True)
     
     
-    print('model: ', model)
-    print('receptive field: ', model.receptive_field)
-   
-    train_path = r'/Users/samarththopaiah/Desktop/DeepLearning/LLMs/DeepGenerativeModels/GenerativeModels/Autoregressive/additional/pytorch-wavenet/train_samples/bach_chaconne/dataset.npz'
-    test_path  = r''
+    
+    training, generate = False, True
+    
+    if training:
+        train_path = r'/Users/samarththopaiah/Desktop/DeepLearning/LLMs/DeepGenerativeModels/GenerativeModels/Autoregressive/additional/pytorch-wavenet/train_samples/bach_chaconne/dataset.npz'
+        test_path  = r''
 
-    train_data = WavenetDataset(dataset_file = train_path,
-                      item_length=model.receptive_field + model.output_length - 1,
-                      target_length=model.output_length,
-                      file_location='./train_samples/bach_chaconne',
-                      test_stride=500)
-    print('the dataset has ' + str(len(train_data)) + ' items')
-    train_loader = DataLoader(dataset = train_data, batch_size = 8, shuffle = True, num_workers = 0, pin_memory = False)
-    train(model, train_loader)
-    
-    
+        train_data = WavenetDataset(dataset_file = train_path,
+                        item_length=model.receptive_field + model.output_length - 1,
+                        target_length=model.output_length,
+                        file_location='./train_samples/bach_chaconne',
+                        test_stride=500)
+        if master_process:
+            print('model: ', model)
+            print('receptive field: ', model.receptive_field)
+            print('the dataset has ' + str(len(train_data)) + ' items')
+        if ddp: 
+            sampler = DistributedSampler(dataset= train_data, rank= ddp_local_rank, num_replicas = ddp_world_size, shuffle=True)
+            bs = 256 // 3
+        else:
+            sampler = None
+            bs = 256
+        train_loader = DataLoader(dataset = train_data, batch_size = bs, sampler=sampler)
+        train(model, train_loader)
+
+    if generate: 
+        print('==> Load from pre-trained')
+        ckpt = torch.load(r'./ckpt/9_23470.pt', weights_only=False)
+        model.load_state_dict(ckpt['model'])
+
+        generate_block(model = model)    
 
 if __name__ == "__main__": 
     # parser = argparse.ArgumentParser()
