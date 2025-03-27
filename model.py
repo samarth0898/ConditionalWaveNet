@@ -103,7 +103,7 @@ class WaveNet(nn.Module):
         self.output_length = output_length
         self.receptive_field = receptive_field
 
-    def forward(self, x):
+    def forward(self, x, generation = False):
        
         x = self.causal_conv(x)
         
@@ -143,13 +143,13 @@ class WaveNet(nn.Module):
         x = self.end_conv_2(x)
 
         # post process the output --> input shape 
-       
-        [n, c, l] = x.size()
+        if not generation:
+            [n, c, l] = x.size()
 
-        l = self.output_length
-        x = x[:, :, -l:]
-        x = x.transpose(1, 2).contiguous()
-        x = x.view(n * l, c)
+            l = self.output_length
+            x = x[:, :, -l:]
+            x = x.transpose(1, 2).contiguous()
+            x = x.view(n * l, c)
 
         return x 
 

@@ -4,11 +4,47 @@ from torch.optim import Adam
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-import argparse 
+import torch.distributed as dist
+from torch.utils.tensorboard import SummaryWriter
 
+import argparse 
+import os
 
 from model import WaveNet
 from dataset import WavenetDataset
+
+# some ddp functionality ~ from Karpathy
+ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
+if ddp:
+    # use of DDP atm demands CUDA, we set the device appropriately according to rank
+    assert torch.cuda.is_available(), "for now i think we need CUDA for DDP"
+    dist.nit_process_group(backend='nccl')
+    ddp_rank = int(os.environ['RANK'])
+    ddp_local_rank = int(os.environ['LOCAL_RANK'])
+    ddp_world_size = int(os.environ['WORLD_SIZE'])
+    device = f'cuda:{ddp_local_rank}'
+    torch.cuda.set_device(device)
+    master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
+else:
+    # vanilla, non-DDP run
+    ddp_rank = 0
+    ddp_local_rank = 0
+    ddp_world_size = 1
+    master_process = True
+    # attempt to autodetect device
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    print(f"using device: {device}")
+
+def cleanup():
+    dist.destroy_process_group()
+
+# added after video, pytorch can be serious about it's device vs. device_type distinction
+device_type = "cuda" if device.startswith("cuda") else "cpu"
+
 
 def train(model, train_dataloader, clip = None):
     epochs = 10
@@ -25,7 +61,11 @@ def train(model, train_dataloader, clip = None):
     in_dtype = torch.FloatTensor
     out_ltype = torch.LongTensor
 
+    if master_process: 
+        writer = SummaryWriter()
+
     for epoch in range(epochs): 
+        loss_accum = 0.0
         for i, (x, target) in enumerate(train_dataloader): 
             # input : B, Quantize, Length
             # target: 
@@ -37,21 +77,27 @@ def train(model, train_dataloader, clip = None):
             output = model(x)
          
             loss = F.cross_entropy(output.squeeze(), target.squeeze())
+            loss_accum += loss.detach()
             loss.backward()
-
-            train_loss += loss.item()
+            if ddp: 
+                dist.all_reduce(loss_accum, op = dist.ReduceOp.AVG)
+            
             # gradient clipping
             if clip: 
                 nn.utils.clip_grad(model.parameters(), clip)
             optimizer.step()
+            if master_process: 
+                step += 1
+                print(f'[{epoch}/{epochs}]|[{step}]|train loss {loss.item():04f}')
         
-        if verbose: 
-            train_loss /= len(train_dataloader)
-            print(f'[{epoch}/{epochs}] | train loss {train_loss:04f}')
+        if master_process and verbose: 
+            loss_accum /= len(train_dataloader)
+            print(f'[{epoch}/{epochs}] | train loss {loss_accum:04f}')
+            writer.add_scalar('epoch_train_loss', loss_accum, epoch)
             train_loss = 0.0
 
         # checkpoint every 1000 steps 
-        if step % 1000 == 0: 
+        if (step % 1 == 0) and master_process: 
             ckpt = {'model': model.state_dict(), 'optim': optimizer.state_dict(), 'step': step}
             torch.save(ckpt, f'./checkpoints/{step}.pt')
 
